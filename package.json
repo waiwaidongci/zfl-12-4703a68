@@ -1,0 +1,14 @@
+{
+  "name": "zfl-12-trip-planner",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5112",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 6112"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}
