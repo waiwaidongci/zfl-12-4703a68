@@ -1,6 +1,7 @@
 import "./styles.css";
 
 const STORAGE_KEY = "zfl-12-trip";
+const PACKING_CATEGORIES = ["证件", "衣物", "电子设备", "药品", "其他"];
 let state = loadState();
 const app = document.querySelector("#app");
 
@@ -11,6 +12,8 @@ function loadState() {
   return {
     tripName: "杭州周末旅行",
     activeDate: today,
+    activeTab: "plan",
+    activeCategory: "全部",
     items: [
       {
         id: crypto.randomUUID(),
@@ -21,6 +24,11 @@ function loadState() {
         budget: 80,
         note: "提前看天气，带轻便外套"
       }
+    ],
+    packingItems: [
+      { id: crypto.randomUUID(), name: "身份证", category: "证件", packed: false },
+      { id: crypto.randomUUID(), name: "换洗衣物", category: "衣物", packed: true },
+      { id: crypto.randomUUID(), name: "充电宝", category: "电子设备", packed: false }
     ]
   };
 }
@@ -36,6 +44,8 @@ function render() {
     .sort((a, b) => a.time.localeCompare(b.time));
   const totalBudget = sumBudget(state.items);
   const activeBudget = sumBudget(activeItems);
+  const packingStats = getPackingStats();
+  const filteredPackingItems = getFilteredPackingItems();
 
   app.innerHTML = `
     <main class="shell">
@@ -50,6 +60,20 @@ function render() {
         </div>
       </section>
 
+      <div class="main-tabs">
+        <button class="main-tab ${state.activeTab === "plan" ? "active" : ""}" data-main-tab="plan">行程安排</button>
+        <button class="main-tab ${state.activeTab === "packing" ? "active" : ""}" data-main-tab="packing">打包清单</button>
+      </div>
+
+      ${state.activeTab === "plan" ? renderPlanSection(dates, activeItems) : renderPackingSection(packingStats, filteredPackingItems)}
+    </main>
+  `;
+
+  bindEvents();
+}
+
+function renderPlanSection(dates, activeItems) {
+  return `
       <section class="layout">
         <aside class="panel">
           <h2>新增行程</h2>
@@ -73,10 +97,40 @@ function render() {
           </div>
         </section>
       </section>
-    </main>
   `;
+}
 
-  bindEvents();
+function renderPackingSection(stats, filteredItems) {
+  const categories = ["全部", ...PACKING_CATEGORIES];
+  return `
+      <section class="layout">
+        <aside class="panel">
+          <h2>新增物品</h2>
+          <form class="form" id="packing-form">
+            <label>物品名称<input name="name" required placeholder="例如：墨镜"></label>
+            <label>分类
+              <select name="category" required>
+                ${PACKING_CATEGORIES.map((cat) => `<option value="${cat}">${cat}</option>`).join("")}
+              </select>
+            </label>
+            <button class="primary" type="submit">加入清单</button>
+          </form>
+          <div class="packing-summary">
+            <div class="stat"><span>已准备</span><strong>${stats.packed}</strong></div>
+            <div class="stat"><span>总计</span><strong>${stats.total}</strong></div>
+          </div>
+        </aside>
+
+        <section>
+          <div class="tabs">
+            ${categories.map((cat) => `<button class="tab ${state.activeCategory === cat ? "active" : ""}" data-category="${cat}">${cat}</button>`).join("")}
+          </div>
+          <div class="packing-list">
+            ${filteredItems.length ? filteredItems.map(renderPackingItem).join("") : `<div class="empty">暂无物品，添加一个吧</div>`}
+          </div>
+        </section>
+      </section>
+  `;
 }
 
 function renderItem(item) {
@@ -98,12 +152,65 @@ function renderItem(item) {
   `;
 }
 
+function renderPackingItem(item) {
+  return `
+    <article class="packing-item ${item.packed ? "packed" : ""}">
+      <label class="packing-check">
+        <input type="checkbox" data-toggle="${item.id}" ${item.packed ? "checked" : ""}>
+        <span class="checkmark"></span>
+      </label>
+      <div class="packing-info">
+        <h3>${escapeHtml(item.name)}</h3>
+        <span class="chip">${item.category}</span>
+      </div>
+      <button class="ghost" data-delete-packing="${item.id}">删除</button>
+    </article>
+  `;
+}
+
+function getPackingStats() {
+  const total = state.packingItems.length;
+  const packed = state.packingItems.filter((item) => item.packed).length;
+  return { total, packed };
+}
+
+function getFilteredPackingItems() {
+  if (state.activeCategory === "全部") {
+    return state.packingItems.slice().sort((a, b) => {
+      if (a.packed !== b.packed) return a.packed ? 1 : -1;
+      return a.name.localeCompare(b.name, "zh");
+    });
+  }
+  return state.packingItems
+    .filter((item) => item.category === state.activeCategory)
+    .sort((a, b) => {
+      if (a.packed !== b.packed) return a.packed ? 1 : -1;
+      return a.name.localeCompare(b.name, "zh");
+    });
+}
+
 function bindEvents() {
   document.querySelector("#trip-name").addEventListener("input", (event) => {
     state.tripName = event.target.value || "未命名旅行";
     saveState();
   });
 
+  document.querySelectorAll("[data-main-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeTab = button.dataset.mainTab;
+      saveState();
+      render();
+    });
+  });
+
+  if (state.activeTab === "plan") {
+    bindPlanEvents();
+  } else {
+    bindPackingEvents();
+  }
+}
+
+function bindPlanEvents() {
   document.querySelector("#plan-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.target));
@@ -135,6 +242,48 @@ function bindEvents() {
       if (!state.items.some((item) => item.date === state.activeDate) && state.items[0]) {
         state.activeDate = state.items[0].date;
       }
+      saveState();
+      render();
+    });
+  });
+}
+
+function bindPackingEvents() {
+  document.querySelector("#packing-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    state.packingItems.push({
+      id: crypto.randomUUID(),
+      name: data.name.trim(),
+      category: data.category,
+      packed: false
+    });
+    saveState();
+    render();
+  });
+
+  document.querySelectorAll("[data-category]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.activeCategory = button.dataset.category;
+      saveState();
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-toggle]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const item = state.packingItems.find((i) => i.id === checkbox.dataset.toggle);
+      if (item) {
+        item.packed = checkbox.checked;
+        saveState();
+        render();
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-delete-packing]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.packingItems = state.packingItems.filter((item) => item.id !== button.dataset.deletePacking);
       saveState();
       render();
     });
